@@ -1,6 +1,7 @@
 package paypulse.model;
 
 public class MerchantUser extends User {
+
     public MerchantUser(String upiId, String name, String pin) {
         super(upiId, name, pin);
     }

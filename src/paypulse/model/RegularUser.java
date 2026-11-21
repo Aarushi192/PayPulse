@@ -1,6 +1,7 @@
 package paypulse.model;
 
-public class RegularUser extends User{
+public class RegularUser extends User {
+
     public RegularUser(String upiId, String name, String pin) {
         super(upiId, name, pin);
     }

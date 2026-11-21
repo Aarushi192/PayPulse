@@ -1,36 +1,38 @@
 package paypulse.model;
 
 import paypulse.exception.AccountLockedException;
+import paypulse.exception.InsufficientBalanceException;
 import paypulse.exception.InvalidPinException;
 
-/** Abstract base class for every account in PayPulse. */
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
-public abstract class User implements Authenticatable{
+/** Abstract base class for every account in PayPulse. */
+public abstract class User implements Authenticatable, Comparable<User> {
 
     public static final int MAX_FAILED_ATTEMPTS = 3;
     private static int totalUsers = 0;
 
     private String upiId;
     private String name;
-    private String pinHash;
-
+    private String pinHash;          // plain PIN for now; hashing is an optional extra
     private double balance;
-    private int failedAttempts ;
+    private int failedAttempts;
     private boolean locked;
     private double dailySpent;
+    private final List<String> contacts = new ArrayList<>();   // saved contacts (UPI IDs)
 
     // Overloaded constructors chained with this(...)
-
-    public User(String upiId,String name, String pin){
+    public User(String upiId, String name, String pin) {
         this(upiId, name, pin, 0.0);
     }
 
-    public User(String upiId,String name, String pin, double balance){
+    public User(String upiId, String name, String pin, double balance) {
         this(upiId, name, pin, balance, 0, false, 0.0);
     }
 
     // Full constructor (also used later when loading rows from MySQL)
-
     public User(String upiId, String name, String pin, double balance,
                 int failedAttempts, boolean locked, double dailySpent) {
         this.upiId = upiId;
@@ -49,6 +51,7 @@ public abstract class User implements Authenticatable{
     /** Short label such as REGULAR or MERCHANT (will become user_type in the DB). */
     public abstract String getUserType();
 
+    // ---------------- Authentication ----------------
     @Override
     public boolean login(String pin) throws InvalidPinException {
         if (locked) {
@@ -72,8 +75,45 @@ public abstract class User implements Authenticatable{
         this.locked = true;
     }
 
-    /** ravi@upi becomes ra****@upi, built with StringBuilder. */
+    // ---------------- Wallet (Phase 3: synchronized) ----------------
+    /** Person B calls this when crediting the receiver. */
+    public synchronized void deposit(double amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Amount must be positive.");
+        }
+        balance += amount;
+    }
 
+    /** Person B calls this when debiting the sender. Also records daily spending. */
+    public synchronized void withdraw(double amount) throws InsufficientBalanceException {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Amount must be positive.");
+        }
+        if (amount > balance) {
+            throw new InsufficientBalanceException(
+                    "Balance " + balance + " is less than " + amount);
+        }
+        balance -= amount;
+        dailySpent += amount;
+    }
+
+    public synchronized void resetDailySpent() {
+        dailySpent = 0;
+    }
+
+    // ---------------- Contacts ----------------
+    public void addContact(String contactUpi) {
+        if (!contacts.contains(contactUpi)) {
+            contacts.add(contactUpi);
+        }
+    }
+
+    public List<String> getContacts() {
+        return Collections.unmodifiableList(contacts);
+    }
+
+    // ---------------- Helpers ----------------
+    /** ravi@upi becomes ra****@upi, built with StringBuilder. */
     public String getMaskedUpi() {
         int at = upiId.indexOf('@');
         String handle = upiId.substring(0, at);
@@ -89,22 +129,28 @@ public abstract class User implements Authenticatable{
         return totalUsers;
     }
 
+    /** Natural order: by name (ignoring case), then UPI ID so two equal names still differ. */
+    @Override
+    public int compareTo(User other) {
+        int byName = this.name.compareToIgnoreCase(other.name);
+        return byName != 0 ? byName : this.upiId.compareTo(other.upiId);
+    }
+
     public String getUpiId() { return upiId; }
     public String getName() { return name; }
     public String getPinHash() { return pinHash; }
-    public double getBalance() { return balance; }
+    public synchronized double getBalance() { return balance; }
     public int getFailedAttempts() { return failedAttempts; }
     public boolean isLocked() { return locked; }
-    public double getDailySpent() { return dailySpent; }
+    public synchronized double getDailySpent() { return dailySpent; }
 
     public void setName(String name) { this.name = name; }
-    public void setBalance(double balance) { this.balance = balance; }
-    public void setDailySpent(double dailySpent) { this.dailySpent = dailySpent; }
+    public synchronized void setBalance(double balance) { this.balance = balance; }
+    public synchronized void setDailySpent(double dailySpent) { this.dailySpent = dailySpent; }
 
     @Override
     public String toString() {
         return String.format("%s[%s, %s, balance=%.2f, locked=%b]",
-                getUserType(), getMaskedUpi(), name, balance, locked);
+                getUserType(), getMaskedUpi(), name, getBalance(), locked);
     }
-
 }
