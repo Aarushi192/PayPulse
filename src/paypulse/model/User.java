@@ -5,7 +5,7 @@ import paypulse.exception.InvalidPinException;
 
 /** Abstract base class for every account in PayPulse. */
 
-public class User implements Authenticatable{
+public abstract class User implements Authenticatable{
 
     public static final int MAX_FAILED_ATTEMPTS = 3;
     private static int totalUsers = 0;
