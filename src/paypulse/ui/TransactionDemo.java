@@ -1,5 +1,6 @@
 package paypulse.ui;
 
+import paypulse.exception.DailyLimitExceededException;
 import paypulse.exception.InsufficientBalanceException;
 import paypulse.exception.InvalidAmountException;
 import paypulse.model.BillPayment;
@@ -30,7 +31,7 @@ public class TransactionDemo {
             User receiver = t.getReceiverUpi().equals("priya@upi") ? priya : bescom;
             try {
                 t.process(ravi, receiver);
-            } catch (InsufficientBalanceException e) {
+            } catch (InsufficientBalanceException |DailyLimitExceededException e) {
                 System.out.println("Failed: " + e.getMessage());
             } catch (InvalidAmountException e) {
                 System.out.println("Rejected: " + e.getMessage());

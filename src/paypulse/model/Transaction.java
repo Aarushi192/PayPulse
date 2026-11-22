@@ -1,5 +1,5 @@
 package paypulse.model;
-
+import paypulse.exception.DailyLimitExceededException;
 import paypulse.exception.InsufficientBalanceException;
 import paypulse.exception.InvalidAmountException;
 
@@ -49,22 +49,25 @@ public abstract class Transaction implements Processable {
     }
 
     @Override
-    public void process(User sender, User receiver) throws InsufficientBalanceException {
+    public void process(User sender, User receiver)
+            throws InsufficientBalanceException, DailyLimitExceededException {
         try {
             validate();
-        } catch (InvalidAmountException e) {
-            status = TransactionStatus.FAILED;
-            throw e;
-        }
-        try {
+            if (sender.getDailySpent() + totalDebit() > sender.getDailyLimit()) {
+                throw new DailyLimitExceededException(String.format(
+                        "Daily limit %.2f would be exceeded (already spent %.2f)",
+                        sender.getDailyLimit(), sender.getDailySpent()));
+            }
             sender.withdraw(totalDebit());      // sender pays amount + fee
-        } catch (InsufficientBalanceException e) {
+        } catch (InvalidAmountException | InsufficientBalanceException
+                 | DailyLimitExceededException e) {      // multi-catch: same handling for all three
             status = TransactionStatus.FAILED;
             throw e;
         }
         receiver.deposit(amount);               // receiver gets the amount, not the fee
         status = TransactionStatus.SUCCESS;
     }
+
 
     public static int getTotalCount() { return totalCount; }
 
