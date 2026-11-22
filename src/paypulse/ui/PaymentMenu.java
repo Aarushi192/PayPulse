@@ -5,14 +5,16 @@ import paypulse.exception.InsufficientBalanceException;
 import paypulse.exception.InvalidAmountException;
 import paypulse.exception.InvalidUPIException;
 import paypulse.model.BillPayment;
+import paypulse.model.P2PTransaction;
 import paypulse.model.Transaction;
 import paypulse.model.User;
 import paypulse.service.MonthlySpendTable;
-import paypulse.service.PaymentCommandParser;
+
 import paypulse.service.UserService;
 import paypulse.util.PaymentLog;
 import paypulse.util.ReceiptFormatter;
 import paypulse.util.ValidationUtil;
+
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,7 +25,7 @@ import java.util.TreeSet;
 public class PaymentMenu {
 
     private final UserService service;
-    private final User sender;                       // the logged-in user
+    private final User sender;
     private final Scanner sc;
     private final List<Transaction> history = new ArrayList<>();
     private final MonthlySpendTable spendTable;
@@ -35,7 +37,7 @@ public class PaymentMenu {
         this.spendTable = new MonthlySpendTable(new ArrayList<>(new TreeSet<>(service.getUpiIds())));
     }
 
-    // ---------------- Main menu ----------------
+
     public void run() {
         try {
             while (true) {
@@ -68,30 +70,94 @@ public class PaymentMenu {
         }
     }
 
-    // ---------------- Send money (typed command) ----------------
+
     private void sendMoney() {
-        System.out.println("\n--- Send money ---");
-        String command = ask("Type: send <amount> to <upi> [note]  > ");
-        try {
-            Transaction t = PaymentCommandParser.parse(sender.getUpiId(), command);
-            execute(t);
-        } catch (InvalidUPIException | InvalidAmountException | IllegalArgumentException e) {
-            System.out.println("Invalid input: " + e.getMessage());
+        System.out.println("\n--- Send money --- (type 'cancel' at any question to go back)");
+        Double amount = askAmount();
+        if(amount == null){
+            return;
+        }
+        User receiver = askReceiver("Send to (UPI ID): ");
+        if(receiver == null){
+            return;
+        }
+        String note = "";
+        if(askYesNo("Add a message? (y/n): ")){
+            note = ask("Message: ");
+        }
+        execute(new P2PTransaction(sender.getUpiId(), receiver.getUpiId(),amount,note));
+
+
+    }
+
+
+    private void payBill() {
+        System.out.println("\n--- Pay a bill ---(type 'cancel' at any question to go back)");
+        Double amount = askAmount();
+        if(amount == null){
+            return;
+        }
+        User biller = askReceiver("Biller UPI ID (e.g bescom@upi): ");
+        if(biller == null)
+            return;
+        String billerName = "";
+        while(billerName.isEmpty()){
+            billerName = ask("Bill for(e.g Electricity): ");
+        }
+        execute(new BillPayment(sender.getUpiId(), biller.getUpiId(),amount,billerName));
+    }
+
+    private Double askAmount(){
+        while(true){
+            String raw = ask("Amount: ");
+            if(raw.equalsIgnoreCase("cancel")){
+                return null;
+            }
+            try{
+                return ValidationUtil.parseAmount(raw);
+            }
+            catch (IllegalArgumentException e){
+                System.out.println("Invalid amount: "+e.getMessage());
+            }
         }
     }
 
-    // ---------------- Pay a bill ----------------
-    private void payBill() {
-        System.out.println("\n--- Pay a bill ---");
-        String biller = ask("Biller UPI ID (e.g. bescom@upi): ");
-        String billerName = ask("Bill for (e.g. Electricity): ");
-        String rawAmount = ask("Amount: ");
-        try {
-            ValidationUtil.validateUpi(biller);
-            double amount = ValidationUtil.parseAmount(rawAmount);
-            execute(new BillPayment(sender.getUpiId(), biller, amount, billerName));
-        } catch (InvalidUPIException | IllegalArgumentException e) {
-            System.out.println("Invalid input: " + e.getMessage());
+    private User askReceiver(String prompt){
+        while(true){
+            String upi = ask(prompt);
+            if(upi.equalsIgnoreCase("cancel")){
+                return null;
+            }
+            try{
+                ValidationUtil.validateUpi(upi);
+            }
+            catch (InvalidUPIException e){
+                System.out.println("Invalid UPI ID: "+ e.getMessage());
+                continue;
+            }
+            User receiver = service.getUser(upi);
+            if(receiver == null){
+                System.out.println("No such user: "+upi);
+            }
+            else if(receiver == sender){
+                System.out.println("You cannot pay yourself.");
+            }
+            else {
+                System.out.println("Paying " + receiver.getName() + " (" + receiver.getMaskedUpi() + ")");
+                return receiver;
+            }
+        }
+    }
+    private boolean askYesNo(String prompt) {
+        while (true) {
+            String answer = ask(prompt).toLowerCase();
+            if (answer.equals("y") || answer.equals("yes")) {
+                return true;
+            }
+            if (answer.equals("n") || answer.equals("no")) {
+                return false;
+            }
+            System.out.println("Please answer y or n.");
         }
     }
 
@@ -126,7 +192,7 @@ public class PaymentMenu {
         }
     }
 
-    // ---------------- History, receipt, search ----------------
+
     private void showHistory() {
         System.out.println("\n--- Payment history ---");
         if (history.isEmpty()) {
