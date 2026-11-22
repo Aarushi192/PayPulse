@@ -1,20 +1,45 @@
 package paypulse.ui;
 
+import paypulse.exception.InsufficientBalanceException;
+import paypulse.exception.InvalidAmountException;
+import paypulse.model.BillPayment;
+import paypulse.model.P2PTransaction;
+import paypulse.model.RegularUser;
 import paypulse.model.Transaction;
-import paypulse.model.TransactionStatus;
+import paypulse.model.User;
 
-/** Person B's quick test: run this class to check the Transaction class. */
+import java.util.ArrayList;
+import java.util.List;
+
 public class TransactionDemo {
     public static void main(String[] args) {
-        Transaction t1 = new Transaction("ravi@upi", "priya@upi", 500);
-        Transaction t2 = new Transaction("priya@upi", "ravi@upi", 120.50, "Lunch");
+        User ravi = new RegularUser("ravi@upi", "Ravi", "1234", 1000);
+        User priya = new RegularUser("priya@upi", "Priya", "4321", 0);
+        User bescom = new RegularUser("bescom@upi", "Bescom", "1111", 0);
 
-        System.out.println(t1);
-        System.out.println(t2);
+        List<Transaction> payments = new ArrayList<>();
+        payments.add(new P2PTransaction("ravi@upi", "priya@upi", 500, "Lunch"));
+        payments.add(new BillPayment("ravi@upi", "bescom@upi", 200, "Electricity"));
+        payments.add(new BillPayment("ravi@upi", "bescom@upi", 5000, "Rent"));   // too much
+        payments.add(new P2PTransaction("ravi@upi", "priya@upi", -5));           // bad amount
 
-        t1.setStatus(TransactionStatus.SUCCESS);
-        System.out.println("After processing: " + t1);
-        System.out.println("Note on t2: " + t2.getNote());
+        System.out.println("Before: Ravi=" + ravi.getBalance() + " Priya=" + priya.getBalance()
+                + " Bescom=" + bescom.getBalance());
+
+        for (Transaction t : payments) {
+            User receiver = t.getReceiverUpi().equals("priya@upi") ? priya : bescom;
+            try {
+                t.process(ravi, receiver);
+            } catch (InsufficientBalanceException e) {
+                System.out.println("Failed: " + e.getMessage());
+            } catch (InvalidAmountException e) {
+                System.out.println("Rejected: " + e.getMessage());
+            }
+            System.out.println(t);
+        }
+
+        System.out.println("After:  Ravi=" + ravi.getBalance() + " Priya=" + priya.getBalance()
+                + " Bescom=" + bescom.getBalance());
         System.out.println("Total created: " + Transaction.getTotalCount());
     }
 }
