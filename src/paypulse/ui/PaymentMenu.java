@@ -8,13 +8,12 @@ import paypulse.model.BillPayment;
 import paypulse.model.P2PTransaction;
 import paypulse.model.Transaction;
 import paypulse.model.User;
+import paypulse.service.HistoryService;
 import paypulse.service.MonthlySpendTable;
-
 import paypulse.service.UserService;
 import paypulse.util.PaymentLog;
 import paypulse.util.ReceiptFormatter;
 import paypulse.util.ValidationUtil;
-
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,12 +21,13 @@ import java.util.NoSuchElementException;
 import java.util.Scanner;
 import java.util.TreeSet;
 
+
 public class PaymentMenu {
 
     private final UserService service;
     private final User sender;
     private final Scanner sc;
-    private final List<Transaction> history = new ArrayList<>();
+    private final HistoryService history = new HistoryService();
     private final MonthlySpendTable spendTable;
 
     public PaymentMenu(UserService service, User sender, Scanner sc) {
@@ -49,7 +49,11 @@ public class PaymentMenu {
                 System.out.println("4. Show a receipt");
                 System.out.println("5. Search notes");
                 System.out.println("6. Monthly spend table");
-                System.out.println("7. Exit");
+                System.out.println("7. Recent receivers");
+                System.out.println("8. Queue a payment for later");
+                System.out.println("9. Send queued payments");
+                System.out.println("10. Remove failed payments from history");
+                System.out.println("11. Exit");
                 String choice = ask("Choose: ");
                 switch (choice) {
                     case "1" -> sendMoney();
@@ -58,11 +62,15 @@ public class PaymentMenu {
                     case "4" -> showReceipt();
                     case "5" -> searchNotes();
                     case "6" -> System.out.println("\n" + spendTable.render());
-                    case "7" -> {
+                    case "7" -> showRecentReceivers();
+                    case "8" -> queuePayment();
+                    case "9" -> sendQueued();
+                    case "10" -> System.out.println("Removed " + history.removeFailed() + " failed payment(s).");
+                    case "11" -> {
                         System.out.println("Goodbye!");
                         return;
                     }
-                    default -> System.out.println("Please enter a number from 1 to 7.");
+                    default -> System.out.println("Please enter a number from 1 to 11.");
                 }
             }
         } catch (NoSuchElementException e) {
@@ -70,84 +78,124 @@ public class PaymentMenu {
         }
     }
 
-
-    private void sendMoney() {
+       private void sendMoney() {
         System.out.println("\n--- Send money --- (type 'cancel' at any question to go back)");
+        Transaction t = askP2P();
+        if (t != null) {
+            execute(t);
+        }
+    }
+
+
+    private Transaction askP2P() {
         Double amount = askAmount();
-        if(amount == null){
-            return;
+        if (amount == null) {
+            return null;
         }
         User receiver = askReceiver("Send to (UPI ID): ");
-        if(receiver == null){
-            return;
+        if (receiver == null) {
+            return null;
         }
         String note = "";
-        if(askYesNo("Add a message? (y/n): ")){
+        if (askYesNo("Add a message? (y/n): ")) {
             note = ask("Message: ");
         }
-        execute(new P2PTransaction(sender.getUpiId(), receiver.getUpiId(),amount,note));
+        return new P2PTransaction(sender.getUpiId(), receiver.getUpiId(), amount, note);
+    }
 
 
+    private void queuePayment() {
+        System.out.println("\n--- Queue a payment --- (type 'cancel' at any question to go back)");
+        Transaction t = askP2P();
+        if (t != null) {
+            history.queuePending(t);
+            System.out.println("Queued. Payments waiting: " + history.pendingCount());
+        }
+    }
+
+    private void sendQueued() {
+        if (history.pendingCount() == 0) {
+            System.out.println("No queued payments.");
+            return;
+        }
+        Transaction t;
+        while ((t = history.nextPending()) != null) {
+            System.out.println("\nSending queued payment #" + t.getId() + " ...");
+            execute(t);
+        }
+    }
+
+    private void showRecentReceivers() {
+        List<String> recent = history.recentReceivers(5);
+        if (recent.isEmpty()) {
+            System.out.println("You have not paid anyone yet.");
+            return;
+        }
+        System.out.println("\nRecent receivers (latest first):");
+        for (String upi : recent) {
+            System.out.println(" - " + upi);
+        }
     }
 
 
     private void payBill() {
-        System.out.println("\n--- Pay a bill ---(type 'cancel' at any question to go back)");
+        System.out.println("\n--- Pay a bill --- (type 'cancel' at any question to go back)");
         Double amount = askAmount();
-        if(amount == null){
+        if (amount == null) {
             return;
         }
-        User biller = askReceiver("Biller UPI ID (e.g bescom@upi): ");
-        if(biller == null)
+        User biller = askReceiver("Biller UPI ID (e.g. bescom@upi): ");
+        if (biller == null) {
             return;
+        }
         String billerName = "";
-        while(billerName.isEmpty()){
-            billerName = ask("Bill for(e.g Electricity): ");
+        while (billerName.isEmpty()) {
+            billerName = ask("Bill for (e.g. Electricity): ");
         }
-        execute(new BillPayment(sender.getUpiId(), biller.getUpiId(),amount,billerName));
+        execute(new BillPayment(sender.getUpiId(), biller.getUpiId(), amount, billerName));
     }
 
-    private Double askAmount(){
-        while(true){
+
+
+    private Double askAmount() {
+        while (true) {
             String raw = ask("Amount: ");
-            if(raw.equalsIgnoreCase("cancel")){
+            if (raw.equalsIgnoreCase("cancel")) {
                 return null;
             }
-            try{
-                return ValidationUtil.parseAmount(raw);
-            }
-            catch (IllegalArgumentException e){
-                System.out.println("Invalid amount: "+e.getMessage());
+            try {
+                return ValidationUtil.parseAmount(raw);          // double is boxed into a Double
+            } catch (IllegalArgumentException e) {
+                System.out.println("Invalid amount: " + e.getMessage());
             }
         }
     }
 
-    private User askReceiver(String prompt){
-        while(true){
+
+    private User askReceiver(String prompt) {
+        while (true) {
             String upi = ask(prompt);
-            if(upi.equalsIgnoreCase("cancel")){
+            if (upi.equalsIgnoreCase("cancel")) {
                 return null;
             }
-            try{
+            try {
                 ValidationUtil.validateUpi(upi);
-            }
-            catch (InvalidUPIException e){
-                System.out.println("Invalid UPI ID: "+ e.getMessage());
+            } catch (InvalidUPIException e) {
+                System.out.println("Invalid UPI ID: " + e.getMessage());
                 continue;
             }
             User receiver = service.getUser(upi);
-            if(receiver == null){
-                System.out.println("No such user: "+upi);
-            }
-            else if(receiver == sender){
+            if (receiver == null) {
+                System.out.println("No such user: " + upi);
+            } else if (receiver == sender) {
                 System.out.println("You cannot pay yourself.");
-            }
-            else {
+            } else {
                 System.out.println("Paying " + receiver.getName() + " (" + receiver.getMaskedUpi() + ")");
                 return receiver;
             }
         }
     }
+
     private boolean askYesNo(String prompt) {
         while (true) {
             String answer = ask(prompt).toLowerCase();
@@ -186,7 +234,7 @@ public class PaymentMenu {
         } catch (IllegalStateException e) {
             System.out.println("Database problem: " + e.getMessage());
         } finally {
-            history.add(t);                           // finally: every attempt is kept
+            history.record(t);
             PaymentLog.add(t.getTxnType() + " " + t.getSenderUpi() + " -> " + t.getReceiverUpi()
                     + " " + t.getStatus());
         }
@@ -195,12 +243,19 @@ public class PaymentMenu {
 
     private void showHistory() {
         System.out.println("\n--- Payment history ---");
-        if (history.isEmpty()) {
+        if (history.size() == 0) {
             System.out.println("No payments yet.");
             return;
         }
+        System.out.println("1. Oldest first  2. Newest first  3. Biggest amount first");
+        List<Transaction> list;
+        switch (ask("Sort by (1-3, default 1): ")) {
+            case "2" -> list = history.newestFirst();
+            case "3" -> list = history.sortedByAmount();
+            default -> list = history.oldestFirst();
+        }
         System.out.println(ReceiptFormatter.tableHeader());
-        for (Transaction t : history) {
+        for (Transaction t : list) {
             System.out.println(ReceiptFormatter.tableRow(t));
         }
     }
@@ -209,13 +264,12 @@ public class PaymentMenu {
         String rawId = ask("Payment ID: ");
         try {
             int id = Integer.parseInt(rawId);
-            for (Transaction t : history) {
-                if (t.getId() == id) {
-                    System.out.println("\n" + ReceiptFormatter.receipt(t));
-                    return;
-                }
+            Transaction t = history.findById(id);
+            if (t == null) {
+                System.out.println("No payment with ID " + id + " in this session.");
+            } else {
+                System.out.println("\n" + ReceiptFormatter.receipt(t));
             }
-            System.out.println("No payment with ID " + id + " in this session.");
         } catch (NumberFormatException e) {
             System.out.println("The ID must be a number.");
         }
@@ -223,7 +277,7 @@ public class PaymentMenu {
 
     private void searchNotes() {
         String keyword = ask("Search notes for: ");
-        List<Transaction> found = ReceiptFormatter.searchNotes(history, keyword);
+        List<Transaction> found = ReceiptFormatter.searchNotes(history.getAll(), keyword);
         if (found.isEmpty()) {
             System.out.println("No notes contain \"" + keyword + "\".");
             return;
