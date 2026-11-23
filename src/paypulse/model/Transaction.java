@@ -7,7 +7,8 @@ import java.time.LocalDateTime;
 
 public abstract class Transaction implements Processable {
 
-    private static int nextId = 1;        // made thread-safe later (synchronization topic)
+    // Shared by every thread, so access goes through synchronized static methods (one lock: the class).
+    private static int nextId = 1;
     private static int totalCount = 0;
 
     private final int id;
@@ -16,21 +17,30 @@ public abstract class Transaction implements Processable {
     private final double amount;
     private final String note;
     private final LocalDateTime timestamp;
-    private TransactionStatus status;
+    private volatile TransactionStatus status;   // volatile: other threads see the change straight away
 
     protected Transaction(String senderUpi, String receiverUpi, double amount, String note) {
-        this.id = nextId++;
+        this.id = takeNextId();
         this.senderUpi = senderUpi;
         this.receiverUpi = receiverUpi;
         this.amount = amount;
         this.note = note;
         this.timestamp = LocalDateTime.now();
         this.status = TransactionStatus.PENDING;
-        totalCount++;
+        countOne();
     }
 
     protected Transaction(String senderUpi, String receiverUpi, double amount) {
         this(senderUpi, receiverUpi, amount, "");
+    }
+
+    /** Two threads can never get the same ID: only one thread at a time may run this method. */
+    private static synchronized int takeNextId() {
+        return nextId++;
+    }
+
+    private static synchronized void countOne() {
+        totalCount++;
     }
 
     public abstract double calculateFee();
@@ -51,25 +61,31 @@ public abstract class Transaction implements Processable {
     @Override
     public void process(User sender, User receiver)
             throws InsufficientBalanceException, DailyLimitExceededException {
-        try {
-            validate();
-            if (sender.getDailySpent() + totalDebit() > sender.getDailyLimit()) {
-                throw new DailyLimitExceededException(String.format(
-                        "Daily limit %.2f would be exceeded (already spent %.2f)",
-                        sender.getDailyLimit(), sender.getDailySpent()));
+        // Check-then-withdraw must be ONE step per sender, otherwise two threads can both pass the
+        // daily-limit check before either has withdrawn. The lock is the sender object itself.
+        // The receiver is credited OUTSIDE this block, so two payments in opposite directions
+        // (A pays B while B pays A) never hold two locks at once and cannot deadlock.
+        synchronized (sender) {
+            try {
+                validate();
+                if (sender.getDailySpent() + totalDebit() > sender.getDailyLimit()) {
+                    throw new DailyLimitExceededException(String.format(
+                            "Daily limit %.2f would be exceeded (already spent %.2f)",
+                            sender.getDailyLimit(), sender.getDailySpent()));
+                }
+                sender.withdraw(totalDebit());      // sender pays amount + fee
+            } catch (InvalidAmountException | InsufficientBalanceException
+                     | DailyLimitExceededException e) {      // multi-catch: same handling for all three
+                status = TransactionStatus.FAILED;
+                throw e;
             }
-            sender.withdraw(totalDebit());      // sender pays amount + fee
-        } catch (InvalidAmountException | InsufficientBalanceException
-                 | DailyLimitExceededException e) {      // multi-catch: same handling for all three
-            status = TransactionStatus.FAILED;
-            throw e;
         }
         receiver.deposit(amount);               // receiver gets the amount, not the fee
         status = TransactionStatus.SUCCESS;
     }
 
 
-    public static int getTotalCount() { return totalCount; }
+    public static synchronized int getTotalCount() { return totalCount; }
 
     public int getId() { return id; }
     public String getSenderUpi() { return senderUpi; }
