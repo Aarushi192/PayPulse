@@ -30,3 +30,12 @@ bin/
 .DS_Store
 
 db.properties
+# Generated transaction reports
+backups/
+statements/
+
+# Generated fraud logs
+fraud_log.txt
+
+# Temporary Java compilation source list
+sources.txt
