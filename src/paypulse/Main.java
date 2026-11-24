@@ -51,8 +51,12 @@ public class Main {
         Thread resetThread = new Thread(new DailyLimitReset(service, ONE_DAY_MILLIS), "daily-reset");
         resetThread.setDaemon(true);
         resetThread.start();
+        FraudFlagRepository fraudRepository = service.isMemoryOnly()
+                ? null : new FraudFlagRepository();
+
         Thread monitorThread = new Thread(
-                new FraudMonitor(FraudHub.INBOX, FraudHub.SERVICE, false), "fraud-monitor");
+                new FraudMonitor(FraudHub.INBOX, FraudHub.SERVICE, false, fraudRepository),
+                "fraud-monitor");
         monitorThread.setDaemon(true);
         monitorThread.start();
 
