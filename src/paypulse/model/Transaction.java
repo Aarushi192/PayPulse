@@ -34,9 +34,29 @@ public abstract class Transaction implements Processable {
         this(senderUpi, receiverUpi, amount, "");
     }
 
+    /** Used when a payment is loaded back from MySQL: keeps its stored ID, time and status. */
+    protected Transaction(int id, String senderUpi, String receiverUpi, double amount, String note,
+                          LocalDateTime timestamp, TransactionStatus status) {
+        this.id = id;
+        this.senderUpi = senderUpi;
+        this.receiverUpi = receiverUpi;
+        this.amount = amount;
+        this.note = note;
+        this.timestamp = timestamp;
+        this.status = status;
+        ensureNextIdAbove(id);                   // new payments must never reuse a stored ID
+    }
+
     /** Two threads can never get the same ID: only one thread at a time may run this method. */
     private static synchronized int takeNextId() {
         return nextId++;
+    }
+
+    /** Makes sure the next new payment gets an ID bigger than every ID already stored. */
+    public static synchronized void ensureNextIdAbove(int existingId) {
+        if (existingId >= nextId) {
+            nextId = existingId + 1;
+        }
     }
 
     private static synchronized void countOne() {
