@@ -11,6 +11,7 @@ import paypulse.model.User;
 import paypulse.service.HistoryService;
 import paypulse.service.MonthlySpendTable;
 import paypulse.service.UserService;
+import paypulse.service.FraudHub;
 import paypulse.util.PaymentLog;
 import paypulse.util.ReceiptFormatter;
 import paypulse.util.ValidationUtil;
@@ -22,7 +23,7 @@ import java.util.Scanner;
 import java.util.TreeSet;
 
 
-public class PaymentMenu {
+public class PaymenƒtMenu {
 
     private final UserService service;
     private final User sender;
@@ -235,6 +236,7 @@ public class PaymentMenu {
             System.out.println("Database problem: " + e.getMessage());
         } finally {
             history.record(t);
+            FraudHub.report(t);
             PaymentLog.add(t.getTxnType() + " " + t.getSenderUpi() + " -> " + t.getReceiverUpi()
                     + " " + t.getStatus());
         }

@@ -1,0 +1,5 @@
+# Fraud rule thresholds (read by FraudRulesFile with a StreamTokenizer)
+LARGE_AMOUNT 10000
+ROUND_AMOUNT 5000
+RAPID_COUNT 2
+RAPID_SECONDS 60
