@@ -35,13 +35,23 @@ public class DBConnection {
     /** Callers must close the connection (use try-with-resources). */
     public static Connection getConnection() throws SQLException {
         Properties p = load();
+
+        try {
+            Class.forName("com.mysql.cj.jdbc.Driver");
+        } catch (ClassNotFoundException e) {
+            throw new SQLException("MySQL JDBC Driver not found. Add MySQL Connector/J to project dependencies.", e);
+        }
+
         Properties info = new Properties();
+
         if (p.getProperty("db.user") != null) {
             info.setProperty("user", p.getProperty("db.user"));
         }
+
         if (p.getProperty("db.password") != null) {
             info.setProperty("password", p.getProperty("db.password"));
         }
+
         return DriverManager.getConnection(p.getProperty("db.url"), info);
     }
 
