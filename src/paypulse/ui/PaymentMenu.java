@@ -257,23 +257,31 @@ public class PaymentMenu {
         } catch (IllegalStateException e) {
             System.out.println("Database problem: " + e.getMessage());
         } finally {
-            saveToDatabase(t, receiver);
-            history.record(t);
+        boolean saved = saveToDatabase(t, receiver);
+        history.record(t);
+
+        if (saved) {
             FraudHub.report(t);
-            PaymentLog.add(t.getTxnType() + " " + t.getSenderUpi() + " -> " + t.getReceiverUpi()
-                    + " " + t.getStatus());
         }
+
+        PaymentLog.add(t.getTxnType() + " " + t.getSenderUpi() + " -> " + t.getReceiverUpi()
+                + " " + t.getStatus());
+    }
     }
 
     /** Stores the payment and both balances in MySQL as one all-or-nothing step. */
-    private void saveToDatabase(Transaction t, User receiver) {
+    private boolean saveToDatabase(Transaction t, User receiver) {
         if (service.isMemoryOnly()) {
-            return;
+            return true;
         }
+
         try {
             txnRepo.savePayment(t, sender, receiver);
+            return true;
         } catch (SQLException e) {
-            System.out.println("Could not save payment #" + t.getId() + " to the database: " + e.getMessage());
+            System.out.println("Could not save payment #" + t.getId()
+                    + " to the database: " + e.getMessage());
+            return false;
         }
     }
 
