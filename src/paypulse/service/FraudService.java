@@ -77,7 +77,7 @@ public class FraudService {
                 t -> t.getAmount() >= roundAmount && t.getAmount() <= largeAmount
                         && t.getAmount() % 1000 == 0));          // above largeAmount the HIGH rule already flags it
         rules.add(new NamedRule("Rapid repeated transfers", FraudFlag.MEDIUM,
-                t -> earlierTransfersInWindow(t) >= rapidCount));
+                t -> earlierTransfersInWindow(t) >= rapidCount - 1));
     }
 
     /** How many EARLIER transfers did the same sender make inside the time window? */
