@@ -1,8 +1,10 @@
 package paypulse.ui;
 
+import paypulse.exception.AccountLockedException;
 import paypulse.exception.DailyLimitExceededException;
 import paypulse.exception.InsufficientBalanceException;
 import paypulse.exception.InvalidAmountException;
+import paypulse.exception.InvalidPinException;
 import paypulse.exception.InvalidUPIException;
 import paypulse.model.BillPayment;
 import paypulse.model.P2PTransaction;
@@ -29,12 +31,8 @@ import java.util.NoSuchElementException;
 import java.util.Scanner;
 import java.util.TreeSet;
 
-
-
-
 /** Console menu for Person B: send money, pay bills, history, receipts, monthly spend. */
 public class PaymentMenu {
-
 
     private final UserService service;
     private final User sender;                       // the logged-in user
@@ -42,6 +40,7 @@ public class PaymentMenu {
     private final HistoryService history = new HistoryService();
     private final MonthlySpendTable spendTable;
     private final TransactionRepository txnRepo = new TransactionRepository();   // used only when MySQL is connected
+    private boolean loggedOut = false;           // becomes true if the account gets locked by wrong PINs
 
     public PaymentMenu(UserService service, User sender, Scanner sc) {
         this.service = service;
@@ -51,6 +50,9 @@ public class PaymentMenu {
         if (!service.isMemoryOnly()) {
             try {
                 txnRepo.syncIdCounter();             // new payment IDs continue after the stored ones
+                for (Transaction old : txnRepo.findByUser(sender.getUpiId())) {
+                    history.record(old);             // bring back this user's earlier payments
+                }
             } catch (SQLException e) {
                 System.out.println("Could not read stored payments: " + e.getMessage());
             }
@@ -96,17 +98,20 @@ public class PaymentMenu {
                     }
                     default -> System.out.println("Please enter a number from 1 to 13.");
                 }
+                if (loggedOut) {
+                    return;                          // account locked: back to the login screen
+                }
             }
         } catch (NoSuchElementException e) {
             System.out.println("\nInput closed. Goodbye!");
         }
     }
 
-    // ---------------- Send money (asks: amount, then UPI ID, then an optional message) ----------------
+    // ---------------- Send money (asks: amount, then UPI ID, then an optional message, then the PIN) ----------------
     private void sendMoney() {
         System.out.println("\n--- Send money --- (type 'cancel' at any question to go back)");
         Transaction t = askP2P();
-        if (t != null) {
+        if (t != null && confirmWithPin(t)) {
             execute(t);
         }
     }
@@ -143,6 +148,10 @@ public class PaymentMenu {
             System.out.println("No queued payments.");
             return;
         }
+        System.out.println("\n" + history.pendingCount() + " queued payment(s) are ready to send.");
+        if (!askPin("Enter UPI PIN to send them (or 'cancel'): ")) {
+            return;                                          // they stay in the queue
+        }
         Transaction t;
         while ((t = history.nextPending()) != null) {        // oldest first
             System.out.println("\nSending queued payment #" + t.getId() + " ...");
@@ -162,7 +171,7 @@ public class PaymentMenu {
         }
     }
 
-    // ---------------- Pay a bill (asks: amount, then biller UPI ID, then what the bill is for) ----------------
+    // ---------------- Pay a bill (asks: amount, then biller UPI ID, then what the bill is for, then the PIN) ----------------
     private void payBill() {
         System.out.println("\n--- Pay a bill --- (type 'cancel' at any question to go back)");
         Double amount = askAmount();
@@ -177,7 +186,45 @@ public class PaymentMenu {
         while (billerName.isEmpty()) {
             billerName = ask("Bill for (e.g. Electricity): ");
         }
-        execute(new BillPayment(sender.getUpiId(), biller.getUpiId(), amount, billerName));
+        Transaction bill = new BillPayment(sender.getUpiId(), biller.getUpiId(), amount, billerName);
+        if (confirmWithPin(bill)) {
+            execute(bill);
+        }
+    }
+
+    // ---------------- UPI PIN check (like GPay: asked after amount and receiver are known) ----------------
+    /** Shows what is about to be paid, then asks for the PIN. True only if the PIN was right. */
+    private boolean confirmWithPin(Transaction t) {
+        User to = service.getUser(t.getReceiverUpi());
+        String fee = t.calculateFee() > 0 ? String.format(" + fee %.2f", t.calculateFee()) : "";
+        System.out.printf("%nPay %.2f%s to %s (%s)%n", t.getAmount(), fee, to.getName(), to.getMaskedUpi());
+        return askPin("Enter UPI PIN (or 'cancel'): ");
+    }
+
+    /**
+     * Keeps asking until the PIN is right. It uses the same login() check as the login screen,
+     * so wrong PINs are counted and 3 wrong ones lock the account.
+     */
+    private boolean askPin(String prompt) {
+        while (true) {
+            String pin = ask(prompt);
+            if (pin.equalsIgnoreCase("cancel")) {
+                System.out.println("Payment cancelled.");
+                return false;
+            }
+            try {
+                sender.login(pin);
+                return true;
+            } catch (InvalidPinException e) {
+                System.out.println(e.getMessage());          // "Wrong PIN. Attempts left: 2"
+                service.saveUser(sender);                    // keep the attempt count
+            } catch (AccountLockedException e) {
+                System.out.println(e.getMessage() + " You are logged out.");
+                service.saveUser(sender);                    // keep the lock
+                loggedOut = true;
+                return false;
+            }
+        }
     }
 
     // ---------------- Input helpers with validation loops ----------------
@@ -257,16 +304,16 @@ public class PaymentMenu {
         } catch (IllegalStateException e) {
             System.out.println("Database problem: " + e.getMessage());
         } finally {
-        boolean saved = saveToDatabase(t, receiver);
-        history.record(t);
+            boolean saved = saveToDatabase(t, receiver);
+            history.record(t);
 
-        if (saved) {
-            FraudHub.report(t);
+            if (saved) {
+                FraudHub.report(t);
+            }
+
+            PaymentLog.add(t.getTxnType() + " " + t.getSenderUpi() + " -> " + t.getReceiverUpi()
+                    + " " + t.getStatus());
         }
-
-        PaymentLog.add(t.getTxnType() + " " + t.getSenderUpi() + " -> " + t.getReceiverUpi()
-                + " " + t.getStatus());
-    }
     }
 
     /** Stores the payment and both balances in MySQL as one all-or-nothing step. */
