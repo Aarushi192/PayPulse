@@ -85,10 +85,8 @@ public class CsvUserImporter {
         String upi = f[0].trim();
         ValidationUtil.validateUpi(upi);
 
-        String name = ValidationUtil.cleanName(f[1]);
-        if (name.isEmpty()) {
-            throw new IllegalArgumentException("Name is empty");
-        }
+        String name = ValidationUtil.validateName(f[1]);
+
         String pin = ValidationUtil.parsePin(f[2]);
 
         double balance;

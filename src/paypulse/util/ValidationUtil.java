@@ -66,6 +66,18 @@ public class ValidationUtil {
         return sb.toString();
     }
 
+    public static String validateName(String rawName) {
+        String name = cleanName(rawName);
+        if (name.isEmpty()) {
+            throw new IllegalArgumentException("Name cannot be empty.");
+        }
+        if (!name.matches("[\\p{L}][\\p{L}\\p{M} .'-]{1,49}")) {
+            throw new IllegalArgumentException(
+                    "Name can contain only letters and spaces (no numbers or symbols), 2 to 50 characters.");
+        }
+        return name;
+    }
+
     /** A PIN is exactly 4 digits. Returns it as a String so leading zeros are kept. */
     public static String parsePin(String rawPin) throws InvalidPinException {
         if (rawPin == null) {

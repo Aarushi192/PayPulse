@@ -58,7 +58,7 @@ public class AccountMenu {
         while (true) {
             try {
                 String upi = ask("UPI ID (e.g. ravi@upi): ");
-                String name = ask("Full name: ");
+                String name = askName();
                 String pin = readPin("Choose a 4-digit PIN: ");
                 User user = service.registerNew(upi, name, pin);
                 System.out.println("Registered " + user.getName() + " as " + user.getMaskedUpi());
@@ -182,6 +182,16 @@ public class AccountMenu {
                 + service.getLockedAccounts().stream().map(User::getName).toList());
         System.out.printf("Total money in the system: %.2f%n", service.getTotalMoney());
         System.out.println("Recent logins: " + service.getRecentLogins());
+    }
+    private String askName() {
+        while (true) {
+            String raw = ask("Full name: ");
+            try {
+                return ValidationUtil.validateName(raw);
+            } catch (IllegalArgumentException e) {
+                System.out.println("Invalid name: " + e.getMessage());
+            }
+        }
     }
 
     // ---------------- Input helpers ----------------

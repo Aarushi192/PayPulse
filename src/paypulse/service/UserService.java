@@ -84,7 +84,7 @@ public class UserService {
             throws InvalidUPIException, InvalidPinException {
         ValidationUtil.validateUpi(upiId);
         String pin = ValidationUtil.parsePin(rawPin);
-        String name = ValidationUtil.cleanName(rawName);
+        String name = ValidationUtil.validateName(rawName);
         if (name.isEmpty()) {
             throw new IllegalArgumentException("Name cannot be empty.");
         }
